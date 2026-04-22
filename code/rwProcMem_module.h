@@ -55,8 +55,8 @@ struct rwProcMemDev {
 static struct rwProcMemDev *g_rwProcMem_devp;
 
 static ssize_t rwProcMem_read(struct file* filp, char __user* buf, size_t size, loff_t* ppos);
-static const struct proc_ops rwProcMem_proc_ops = {
-    .proc_read    = rwProcMem_read,
+static const struct file_operations rwProcMem_proc_ops = {
+    .read    = rwProcMem_read,
 };
 
 #endif /* RWPROCMEM_H_ */
