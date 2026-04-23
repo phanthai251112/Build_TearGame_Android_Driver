@@ -126,8 +126,10 @@ jobs:
 
       - name: Disable HDRTEST
         run: |
-           cd android-kernel
-           find . -path "*/usr/include/Makefile" -exec sed -i 's/\$(obj)\/.*\.hdrtest//g' {} +
+          cd android-kernel
+          find . -path "*/usr/include/Makefile" | while read f; do
+            printf '\n# Disable hdrtest\n%%.hdrtest: ;\n' >> "$f"
+          done
 
       - name: Build kernel module
         run: |
