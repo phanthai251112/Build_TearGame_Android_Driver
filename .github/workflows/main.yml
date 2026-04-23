@@ -127,9 +127,36 @@ jobs:
       - name: Disable HDRTEST
         run: |
           cd android-kernel
-          find . -path "*/usr/include/Makefile" | while read f; do
-            sed -i 's/.*hdrtest.*/#&/' "$f"
-          done
+          python3 << 'PYEOF'
+          import glob
+
+          for filepath in glob.glob('common/usr/include/Makefile'):
+              with open(filepath, 'r') as fp:
+                  lines = fp.read().splitlines()
+
+              result = []
+              i = 0
+              while i < len(lines):
+                  line = lines[i]
+                  # Collect full statement including continuation lines
+                  full_stmt = line
+                  j = i
+                  while j < len(lines) and lines[j].endswith('\\'):
+                      j += 1
+                      if j < len(lines):
+                          full_stmt += '\n' + lines[j]
+                  # If any part of the statement mentions hdrtest, skip all of it
+                  if 'hdrtest' in full_stmt:
+                      i = j + 1
+                  else:
+                      result.append(line)
+                      i += 1
+
+              with open(filepath, 'w') as fp:
+                  fp.write('\n'.join(result) + '\n')
+
+          print("HDRTEST disabled successfully")
+          PYEOF
 
       - name: Build kernel module
         run: |
