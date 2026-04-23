@@ -20,7 +20,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Free up disk space
         run: |
@@ -40,12 +40,12 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4.2.2
-        
+
       - name: Prepare kerneldriver directory
         run: |
           mkdir kerneldriver
           mv ./code/*.h ./code/*.c ./code/Makefile kerneldriver/
-          
+
       - name: Install repo tool
         run: |
           sudo curl -L https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo
@@ -70,6 +70,20 @@ jobs:
         run: |
           cd android-kernel
           cp -r ../kerneldriver common/drivers
+
+      # ========== BƯỚC MỚI: SỬA VERMAGIC CHO KERNEL 5.4 ==========
+      - name: Override kernel version for 5.4 target
+        if: ${{ github.event.inputs.kernel_version == '5.4' }}
+        run: |
+          cd android-kernel/common
+          # Sửa SUBLEVEL trong Makefile thành 274
+          sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
+          # Đặt EXTRAVERSION rỗng để không bị nối thêm chuỗi lạ
+          sed -i '/^EXTRAVERSION\s*=/s/=.*/= /' Makefile
+          # Thêm CONFIG_LOCALVERSION vào defconfig của arm64
+          echo 'CONFIG_LOCALVERSION="-qgki-gcc3ec22f5061"' >> arch/arm64/configs/gki_defconfig
+          echo "Vermagic will be: 5.4.274-qgki-gcc3ec22f5061"
+      # =============================================================
 
       - name: Modify Makefile
         run: |
@@ -137,19 +151,6 @@ jobs:
       - name: Build kernel module
         run: |
           cd android-kernel
-          
-          # =========================================================
-          # ÉP PHIÊN BẢN KERNEL VÀ VERMAGIC CHO K40 PRO+ CỦA BẠN
-          # =========================================================
-          sed -i 's/^VERSION = .*/VERSION = 5/' common/Makefile
-          sed -i 's/^PATCHLEVEL = .*/PATCHLEVEL = 4/' common/Makefile
-          sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' common/Makefile
-          sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -qgki-gcc3ec22f5061/' common/Makefile
-          
-          sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' common/arch/arm64/configs/gki_defconfig
-          echo "# CONFIG_MODVERSIONS is not set" >> common/arch/arm64/configs/gki_defconfig
-          # =========================================================
-
           if [ ${{ github.event.inputs.android_version }} -le 13 ]; then
             BUILD_CONFIG=common/build.config.gki.${{ github.event.inputs.target_arch }} \
             LTO=thin \
@@ -163,6 +164,7 @@ jobs:
 
       - name: Collect build artifacts
         run: |
+          rm -rf artifacts
           mkdir -p artifacts
           if [ -z "${{ env.OUTPUT_PATH }}" ]; then
             echo "OUTPUT_PATH not set, build likely failed"
@@ -182,7 +184,7 @@ jobs:
           done
           echo "=== Artifacts to upload ==="
           ls -lh ../../../../artifacts/
-      
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4.6.2
         with:
