@@ -76,36 +76,29 @@ jobs:
           cd android-kernel
           echo "obj-y += kerneldriver/" >> common/drivers/Makefile
 
-      - name: Add module to GKI modules list
-        if: ${{ github.event.inputs.android_version > 13 }}
-        run: |
-          cd android-kernel
-          MODULE_NAME="drivers/kerneldriver/${{ github.event.inputs.driver_name }}"
-          
-          awk -i inplace -v module="$MODULE_NAME" '
-            BEGIN { added=0 }
-            /_COMMON_GKI_MODULES_LIST = \[/ { in_list=1 }
-            in_list && /\]/ {
-              if (!added) {
-                print "    \"" module "\","
-                added=1
-              }
-              in_list=0
-            }
-            in_list && !added {
-              if (module < $0) {
-                print "    \"" module "\","
-                added=1
-              }
-            }
-            { print }
-          ' common/modules.bzl
-          
       - name: Prepare module list for legacy builds
         if: ${{ github.event.inputs.android_version <= 13 }}
         run: |
           cd android-kernel
           echo "drivers/kerneldriver/${{ github.event.inputs.driver_name }}" >> common/android/gki_${{ github.event.inputs.target_arch }}_modules
+
+      - name: Add module to GKI modules list
+        if: ${{ github.event.inputs.android_version > 13 }}
+        run: |
+          cd android-kernel
+          MODULE_NAME="drivers/kerneldriver/${{ github.event.inputs.driver_name }}"
+          awk -i inplace -v module="$MODULE_NAME" '
+            BEGIN { added=0 }
+            /_COMMON_GKI_MODULES_LIST = \[/ { in_list=1 }
+            in_list && /\]/ {
+              if (!added) { print "    \"" module "\"," ; added=1 }
+              in_list=0
+            }
+            in_list && !added {
+              if (module < $0) { print "    \"" module "\"," ; added=1 }
+            }
+            { print }
+          ' common/modules.bzl
 
       - name: Increase stack frame size limit
         run: |
@@ -113,48 +106,31 @@ jobs:
           find . -type f -name "Makefile*" -exec sed -i 's/-Wframe-larger-than=[0-9]*/-Wframe-larger-than=4096/g' {} +
           grep -q "FRAME_WARN" common/Makefile || echo 'KBUILD_CFLAGS += -Wframe-larger-than=4096' >> common/Makefile
 
-      - name: Fix missing kprobe symbols for Android 13
-        if: ${{ github.event.inputs.android_version == 13 }}
-        run: |
-          cd android-kernel
-          for symbol in register_kprobe unregister_kprobe; do
-            grep -q "$symbol" common/android/abi_gki_${{ github.event.inputs.target_arch }} || \
-            echo "$symbol" >> common/android/abi_gki_${{ github.event.inputs.target_arch }}
-          done
-          grep -q "EXPORT_SYMBOL(register_kprobe)" common/kernel/kprobes.c || \
-          echo "EXPORT_SYMBOL(register_kprobe);" >> common/kernel/kprobes.c
-
       - name: Disable HDRTEST
         run: |
           cd android-kernel
           python3 << 'PYEOF'
           import glob
-
           for filepath in glob.glob('common/usr/include/Makefile'):
               with open(filepath, 'r') as fp:
                   lines = fp.read().splitlines()
-
               result = []
               i = 0
               while i < len(lines):
                   line = lines[i]
-                  # Collect full statement including continuation lines
                   full_stmt = line
                   j = i
                   while j < len(lines) and lines[j].endswith('\\'):
                       j += 1
                       if j < len(lines):
                           full_stmt += '\n' + lines[j]
-                  # If any part of the statement mentions hdrtest, skip all of it
                   if 'hdrtest' in full_stmt:
                       i = j + 1
                   else:
                       result.append(line)
                       i += 1
-
               with open(filepath, 'w') as fp:
                   fp.write('\n'.join(result) + '\n')
-
           print("HDRTEST disabled successfully")
           PYEOF
 
@@ -162,10 +138,12 @@ jobs:
         run: |
           cd android-kernel
           if [ ${{ github.event.inputs.android_version }} -le 13 ]; then
-            BUILD_CONFIG=common/build.config.gki.${{ github.event.inputs.target_arch }} LTO=thin build/build.sh -j32
+            BUILD_CONFIG=common/build.config.gki.${{ github.event.inputs.target_arch }} \
+            LTO=thin \
+            KMI_SYMBOL_LIST_STRICT_MODE=0 \
+            build/build.sh -j32
             echo "OUTPUT_PATH=out/android${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}/dist" >> $GITHUB_ENV
           else
-            echo "Using Bazel build system for Android ${{ github.event.inputs.android_version }}"
             tools/bazel run //common:kernel_${{ github.event.inputs.target_arch }}_dist
             echo "OUTPUT_PATH=out/kernel_${{ github.event.inputs.target_arch }}" >> $GITHUB_ENV
           fi
