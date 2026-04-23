@@ -1915,7 +1915,7 @@ static int get_proc_maps_list(bool is_kernel_buf, struct pid* proc_pid_struct, c
 }
 #endif
 
-#if MY_LINUX_VERSION_CODE == KERNEL_VERSION(5,4,61)
+#if MY_LINUX_VERSION_CODE >= KERNEL_VERSION(5,4,0) && MY_LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)
 
 /*
  * Indicate if the VMA is a stack for the given task; for
