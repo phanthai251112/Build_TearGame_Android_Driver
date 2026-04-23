@@ -128,7 +128,7 @@ jobs:
         run: |
           cd android-kernel
           find . -path "*/usr/include/Makefile" | while read f; do
-            printf '\n# Disable hdrtest\n%%.hdrtest: ;\n' >> "$f"
+            sed -i 's/.*hdrtest.*/#&/' "$f"
           done
 
       - name: Build kernel module
