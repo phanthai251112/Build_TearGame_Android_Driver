@@ -191,52 +191,6 @@ static ssize_t OnCmdGetProcessMapsCount(struct ioctl_request *hdr, char __user* 
 	return get_proc_map_count(proc_pid_struct);
 }
 
-/* ---------- get_proc_maps_list: đọc danh sách vma của process ---------- */
- ssize_t get_proc_maps_list(bool unused, struct pid *proc_pid_struct,
-                                  void __user *buf, size_t buf_size) {
-	struct task_struct *task;
-	struct mm_struct *mm;
-	struct vm_area_struct *vma;
-	ssize_t len = 0;
-	char line[256];
-
-	task = get_pid_task(proc_pid_struct, PIDTYPE_PID);
-	if (!task)
-		return -ESRCH;
-
-	mm = get_task_mm(task);
-	put_task_struct(task);
-	if (!mm)
-		return -EINVAL;
-
-	mmap_read_lock(mm);
-	vma = mm->mmap;
-	while (vma && len < (ssize_t)buf_size) {
-		int line_len = snprintf(line, sizeof(line),
-			"%016lx-%016lx %c%c%c%c\n",
-			vma->vm_start, vma->vm_end,
-			(vma->vm_flags & VM_READ)     ? 'r' : '-',
-			(vma->vm_flags & VM_WRITE)    ? 'w' : '-',
-			(vma->vm_flags & VM_EXEC)     ? 'x' : '-',
-			(vma->vm_flags & VM_MAYSHARE) ? 's' : 'p');
-
-		if (len + line_len >= (ssize_t)buf_size)
-			break;
-
-		if (copy_to_user((char __user *)buf + len, line, line_len)) {
-			len = -EFAULT;
-			break;
-		}
-		len += line_len;
-		vma = vma->vm_next;
-	}
-	mmap_read_unlock(mm);
-	mmput(mm);
-
-	return len;
-}
-/* ----------------------------------------------------------------------- */
-
 static ssize_t OnCmdGetProcessMapsList(struct ioctl_request *hdr, char __user* buf) {
 	struct pid * proc_pid_struct = (struct pid *)hdr->param1;
 	printk_debug(KERN_INFO "CMD_GET_PROCESS_MAPS_LIST\n");
@@ -381,6 +335,11 @@ int __init rwProcMem_dev_init(void) {
 
 #ifdef CONFIG_DEBUG_PRINTK
 	printk(KERN_EMERG "Hello, %s debug\n", CONFIG_PROC_NODE_AUTH_KEY);
+	//test1();
+	//test2();
+	//test3();
+	//test4();
+	//test5();
 #else
 	printk(KERN_EMERG "Hello\n");
 #endif
