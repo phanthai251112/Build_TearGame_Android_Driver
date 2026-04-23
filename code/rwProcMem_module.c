@@ -192,7 +192,7 @@ static ssize_t OnCmdGetProcessMapsCount(struct ioctl_request *hdr, char __user* 
 }
 
 /* ---------- get_proc_maps_list: đọc danh sách vma của process ---------- */
-static ssize_t get_proc_maps_list(bool unused, struct pid *proc_pid_struct,
+ssize_t get_proc_maps_list(bool unused, struct pid *proc_pid_struct,
                                   void __user *buf, size_t buf_size) {
 	struct task_struct *task;
 	struct mm_struct *mm;
