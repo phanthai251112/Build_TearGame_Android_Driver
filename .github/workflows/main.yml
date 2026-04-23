@@ -124,6 +124,12 @@ jobs:
             echo "$symbol" >> common/android/abi_gki_${{ github.event.inputs.target_arch }}
           done
           sed -i '/EXPORT_SYMBOL(unregister_kprobe);/a EXPORT_SYMBOL(register_kprobe);' common/kernel/kprobes.c
+
+      - name: Disable HDRTEST
+        run: |
+          cd android-kernel
+          find . -path "*/usr/include/Makefile" | xargs grep -l "hdrtest" | \
+          xargs sed -i 's/$(obj)\/.*.hdrtest//g'     
           
       - name: Build kernel module
         run: |
