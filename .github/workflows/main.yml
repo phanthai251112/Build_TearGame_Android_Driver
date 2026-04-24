@@ -7,10 +7,10 @@ on:
         description: 'Android Version (Kernel) (e.g., 14)'
         required: true
       kernel_version:
-        description: 'Kernel Version (e.g., 6.1)'
+        description: 'Kernel Version (e.g., 5.4)'
         required: true
       driver_name:
-        description: 'Driver Module Name (e.g., mydriver.ko)'
+        description: 'Driver Module Name (e.g., rwProcMem_module.ko)'
         required: true
       target_arch:
         description: 'Target Architecture (aarch64, x86_64, etc.)'
@@ -24,19 +24,11 @@ jobs:
     steps:
       - name: Free up disk space
         run: |
-          echo "=== Before cleanup ==="
-          df -h
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo apt-get clean
           docker rmi $(docker image ls -aq) 2>/dev/null || true
-          echo "=== After cleanup ==="
-          df -h
 
       - name: Checkout repository
         uses: actions/checkout@v4.2.2
@@ -54,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python-is-python3 libc6-dev libncurses-dev rsync
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python-is-python3
 
       - name: Set up Android Kernel source
         run: |
@@ -63,93 +55,42 @@ jobs:
           repo sync -j$(nproc) -c --no-tags --optimized-fetch --force-sync
           find . -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
           rm -rf .repo
-          echo "=== After repo sync cleanup ==="
-          df -h
-
-      - name: Copy kerneldriver
-        run: |
-          cd android-kernel
-          cp -r ../kerneldriver common/drivers
 
       - name: Override kernel version for 5.4 target
         if: ${{ github.event.inputs.kernel_version == '5.4' }}
         run: |
           cd android-kernel/common
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
-          echo "SUBLEVEL set to 274"
 
-      - name: Use device config
+      - name: Set up driver Makefile (out-of-tree)
         run: |
-          cp $GITHUB_WORKSPACE/config android-kernel/common/.config
+          cd kerneldriver
+          MOD="${{ github.event.inputs.driver_name }}"
+          BASE="${MOD%.ko}"   # bỏ đuôi .ko
+          echo "obj-m := ${BASE}.o" > Makefile
+
+      - name: Build driver using device config (kernel 5.4)
+        if: ${{ github.event.inputs.kernel_version == '5.4' }}
+        run: |
+          # Áp dụng config từ máy
+          cp config android-kernel/common/.config
           cd android-kernel/common
-          make olddefconfig
+          make LLVM=1 LLVM_IAS=1 olddefconfig
+          make LLVM=1 LLVM_IAS=1 modules_prepare
+          # Build driver out-of-tree
+          make LLVM=1 LLVM_IAS=1 M=$GITHUB_WORKSPACE/kerneldriver modules
+          # Đưa module vào artifacts
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          cp $GITHUB_WORKSPACE/kerneldriver/${{ github.event.inputs.driver_name }} $GITHUB_WORKSPACE/artifacts/
+        env:
+          ARCH: arm64
 
-      - name: Modify Makefile
+      - name: Build driver for other kernels
+        if: ${{ github.event.inputs.kernel_version != '5.4' }}
         run: |
           cd android-kernel
+          # Thêm driver vào danh sách build in-tree
           echo "obj-y += kerneldriver/" >> common/drivers/Makefile
-
-      - name: Prepare module list for legacy builds
-        if: ${{ github.event.inputs.android_version <= 13 }}
-        run: |
-          cd android-kernel
-          echo "drivers/kerneldriver/${{ github.event.inputs.driver_name }}" >> common/android/gki_${{ github.event.inputs.target_arch }}_modules
-
-      - name: Add module to GKI modules list
-        if: ${{ github.event.inputs.android_version > 13 }}
-        run: |
-          cd android-kernel
-          MODULE_NAME="drivers/kerneldriver/${{ github.event.inputs.driver_name }}"
-          awk -i inplace -v module="$MODULE_NAME" '
-            BEGIN { added=0 }
-            /_COMMON_GKI_MODULES_LIST = \[/ { in_list=1 }
-            in_list && /\]/ {
-              if (!added) { print "    \"" module "\"," ; added=1 }
-              in_list=0
-            }
-            in_list && !added {
-              if (module < $0) { print "    \"" module "\"," ; added=1 }
-            }
-            { print }
-          ' common/modules.bzl
-
-      - name: Increase stack frame size limit
-        run: |
-          cd android-kernel
-          find . -type f -name "Makefile*" -exec sed -i 's/-Wframe-larger-than=[0-9]*/-Wframe-larger-than=4096/g' {} +
-          grep -q "FRAME_WARN" common/Makefile || echo 'KBUILD_CFLAGS += -Wframe-larger-than=4096' >> common/Makefile
-
-      - name: Disable HDRTEST
-        run: |
-          cd android-kernel
-          python3 << 'PYEOF'
-          import glob
-          for filepath in glob.glob('common/usr/include/Makefile'):
-              with open(filepath, 'r') as fp:
-                  lines = fp.read().splitlines()
-              result = []
-              i = 0
-              while i < len(lines):
-                  line = lines[i]
-                  full_stmt = line
-                  j = i
-                  while j < len(lines) and lines[j].endswith('\\'):
-                      j += 1
-                      if j < len(lines):
-                          full_stmt += '\n' + lines[j]
-                  if 'hdrtest' in full_stmt:
-                      i = j + 1
-                  else:
-                      result.append(line)
-                      i += 1
-              with open(filepath, 'w') as fp:
-                  fp.write('\n'.join(result) + '\n')
-          print("HDRTEST disabled successfully")
-          PYEOF
-
-      - name: Build kernel module
-        run: |
-          cd android-kernel
           if [ ${{ github.event.inputs.android_version }} -le 13 ]; then
             BUILD_CONFIG=common/build.config.gki.${{ github.event.inputs.target_arch }} \
             LTO=thin \
@@ -161,12 +102,12 @@ jobs:
             echo "OUTPUT_PATH=out/kernel_${{ github.event.inputs.target_arch }}" >> $GITHUB_ENV
           fi
 
-      - name: Collect build artifacts
+      - name: Collect build artifacts (for non-5.4 builds)
+        if: ${{ github.event.inputs.kernel_version != '5.4' }}
         run: |
-          rm -rf artifacts
           mkdir -p artifacts
           if [ -z "${{ env.OUTPUT_PATH }}" ]; then
-            echo "OUTPUT_PATH not set, build likely failed"
+            echo "OUTPUT_PATH not set"
             exit 1
           fi
           cd android-kernel/${{ env.OUTPUT_PATH }}
@@ -174,15 +115,8 @@ jobs:
             cp -v "${{ github.event.inputs.driver_name }}" ../../../../artifacts/
           fi
           for ko in *.ko; do
-            if [ -f "$ko" ]; then
-              size=$(stat -c%s "$ko" 2>/dev/null || echo 0)
-              if [ "$size" -lt 52428800 ]; then
-                cp -v "$ko" ../../../../artifacts/ 2>/dev/null || true
-              fi
-            fi
+            [ -f "$ko" ] && cp -v "$ko" ../../../../artifacts/ 2>/dev/null || true
           done
-          echo "=== Artifacts to upload ==="
-          ls -lh ../../../../artifacts/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4.6.2
