@@ -45,7 +45,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python-is-python3 lld
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python-is-python3 lld clang llvm
 
       - name: Set up Android Kernel source
         run: |
@@ -60,6 +60,16 @@ jobs:
           cd android-kernel
           cp -r ../kerneldriver common/drivers
 
+      - name: Copy device config file
+        run: |
+          if [ -f ./config ]; then
+            cp ./config android-kernel/common/.config
+            echo "✓ Device config file copied successfully"
+          else
+            echo "✗ Warning: config file not found in repository root"
+            exit 1
+          fi
+
       - name: Override kernel version for 5.4 target
         run: |
           cd android-kernel/common
@@ -73,17 +83,44 @@ jobs:
           BASE="${MOD%.ko}"
           echo "obj-m := ${BASE}.o" > Makefile
 
-      - name: Build driver for 5.4 using device config
+      - name: Prepare kernel configuration
         env:
           ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CC: clang
         run: |
-          cp config android-kernel/common/.config
           cd android-kernel/common
-          make LLVM=1 LLVM_IAS=1 olddefconfig
-          make LLVM=1 LLVM_IAS=1 modules_prepare
-          make LLVM=1 LLVM_IAS=1 M=$GITHUB_WORKSPACE/kerneldriver modules
-          mkdir -p $GITHUB_WORKSPACE/artifacts
-          cp $GITHUB_WORKSPACE/kerneldriver/${{ github.event.inputs.driver_name }} $GITHUB_WORKSPACE/artifacts/
+          make LLVM=1 olddefconfig
+
+      - name: Build kernel modules preparation
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CC: clang
+        run: |
+          cd android-kernel/common
+          make LLVM=1 modules_prepare
+
+      - name: Build driver module
+        env:
+          ARCH: arm64
+          CROSS_COMPILE: aarch64-linux-gnu-
+          CC: clang
+        run: |
+          cd android-kernel/common
+          make LLVM=1 M=$GITHUB_WORKSPACE/kerneldriver modules
+
+      - name: Verify and copy driver artifact
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/kerneldriver/${{ github.event.inputs.driver_name }}" ]; then
+            mkdir -p $GITHUB_WORKSPACE/artifacts
+            cp $GITHUB_WORKSPACE/kerneldriver/${{ github.event.inputs.driver_name }} $GITHUB_WORKSPACE/artifacts/
+            echo "✓ Driver build successful: ${{ github.event.inputs.driver_name }}"
+          else
+            echo "✗ Error: Driver file not found"
+            find $GITHUB_WORKSPACE/kerneldriver -name "*.ko" -o -name "*.o"
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4.6.2
