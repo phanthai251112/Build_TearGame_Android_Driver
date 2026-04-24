@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       android_version:
-        description: 'Android Version (Kernel) (e.g., 14)'
+        description: 'Android Version (Kernel) (e.g., 12)'
         required: true
       kernel_version:
         description: 'Kernel Version (e.g., 5.4)'
@@ -24,9 +24,8 @@ jobs:
     steps:
       - name: Free up disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost /usr/share/swift "$AGENT_TOOLSDIRECTORY"
           sudo apt-get clean
           docker rmi $(docker image ls -aq) 2>/dev/null || true
 
@@ -46,77 +45,45 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python-is-python3
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python-is-python3 lld
 
       - name: Set up Android Kernel source
         run: |
           mkdir -p android-kernel && cd android-kernel
-          repo init -u https://android.googlesource.com/kernel/manifest -b common-android${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.4
           repo sync -j$(nproc) -c --no-tags --optimized-fetch --force-sync
           find . -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
           rm -rf .repo
 
+      - name: Copy kerneldriver
+        run: |
+          cd android-kernel
+          cp -r ../kerneldriver common/drivers
+
       - name: Override kernel version for 5.4 target
-        if: ${{ github.event.inputs.kernel_version == '5.4' }}
         run: |
           cd android-kernel/common
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
+          sed -i '/^EXTRAVERSION\s*=/s/=.*/= /' Makefile
 
-      - name: Set up driver Makefile (out-of-tree)
+      - name: Setup out-of-tree driver Makefile for 5.4
         run: |
           cd kerneldriver
           MOD="${{ github.event.inputs.driver_name }}"
-          BASE="${MOD%.ko}"   # bỏ đuôi .ko
+          BASE="${MOD%.ko}"
           echo "obj-m := ${BASE}.o" > Makefile
 
-      - name: Build driver using device config (kernel 5.4)
-        if: ${{ github.event.inputs.kernel_version == '5.4' }}
+      - name: Build driver for 5.4 using device config
+        env:
+          ARCH: arm64
         run: |
-          # Áp dụng config từ máy
           cp config android-kernel/common/.config
           cd android-kernel/common
           make LLVM=1 LLVM_IAS=1 olddefconfig
           make LLVM=1 LLVM_IAS=1 modules_prepare
-          # Build driver out-of-tree
           make LLVM=1 LLVM_IAS=1 M=$GITHUB_WORKSPACE/kerneldriver modules
-          # Đưa module vào artifacts
           mkdir -p $GITHUB_WORKSPACE/artifacts
           cp $GITHUB_WORKSPACE/kerneldriver/${{ github.event.inputs.driver_name }} $GITHUB_WORKSPACE/artifacts/
-        env:
-          ARCH: arm64
-
-      - name: Build driver for other kernels
-        if: ${{ github.event.inputs.kernel_version != '5.4' }}
-        run: |
-          cd android-kernel
-          # Thêm driver vào danh sách build in-tree
-          echo "obj-y += kerneldriver/" >> common/drivers/Makefile
-          if [ ${{ github.event.inputs.android_version }} -le 13 ]; then
-            BUILD_CONFIG=common/build.config.gki.${{ github.event.inputs.target_arch }} \
-            LTO=thin \
-            KMI_SYMBOL_LIST_STRICT_MODE=0 \
-            build/build.sh -j32
-            echo "OUTPUT_PATH=out/android${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}/dist" >> $GITHUB_ENV
-          else
-            tools/bazel run //common:kernel_${{ github.event.inputs.target_arch }}_dist
-            echo "OUTPUT_PATH=out/kernel_${{ github.event.inputs.target_arch }}" >> $GITHUB_ENV
-          fi
-
-      - name: Collect build artifacts (for non-5.4 builds)
-        if: ${{ github.event.inputs.kernel_version != '5.4' }}
-        run: |
-          mkdir -p artifacts
-          if [ -z "${{ env.OUTPUT_PATH }}" ]; then
-            echo "OUTPUT_PATH not set"
-            exit 1
-          fi
-          cd android-kernel/${{ env.OUTPUT_PATH }}
-          if [ -f "${{ github.event.inputs.driver_name }}" ]; then
-            cp -v "${{ github.event.inputs.driver_name }}" ../../../../artifacts/
-          fi
-          for ko in *.ko; do
-            [ -f "$ko" ] && cp -v "$ko" ../../../../artifacts/ 2>/dev/null || true
-          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4.6.2
