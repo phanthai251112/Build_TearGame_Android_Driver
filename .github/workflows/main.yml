@@ -46,12 +46,20 @@ jobs:
       - name: Copy driver TearGame vao kernel
         run: |
           git clone https://github.com/tearhacker/TearGame_KernelDriver_Android_WriteReadMemory.git temp_driver
+          echo "=== CAU TRUC REPO ==="
+          find temp_driver -type f
           mkdir -p android-kernel/common/drivers/teargame
           find temp_driver -name "*.c" > /tmp/filelist.txt
           find temp_driver -name "*.h" >> /tmp/filelist.txt
           find temp_driver -name "Makefile" >> /tmp/filelist.txt
           cat /tmp/filelist.txt | xargs -I F cp F android-kernel/common/drivers/teargame/
+          echo "=== FILE DA COPY ==="
+          ls -la android-kernel/common/drivers/teargame/
+          echo "=== NOI DUNG MAKEFILE DRIVER ==="
+          cat android-kernel/common/drivers/teargame/Makefile || echo "KHONG CO MAKEFILE"
           echo "obj-m += teargame/" >> android-kernel/common/drivers/Makefile
+          echo "=== KIEM TRA DRIVERS/MAKEFILE ==="
+          tail -5 android-kernel/common/drivers/Makefile
 
       - name: Build kernel modules
         run: |
@@ -61,11 +69,12 @@ jobs:
           scripts/config --disable KGDB_KDB
           scripts/config --disable ARM64_LSE_ATOMICS
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules
-          mkdir -p $GITHUB_WORKSPACE/artifacts
-          echo "=== Tim .ko ==="
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules 2>&1 | tail -50
+          echo "=== TIM .KO ==="
           find . -name "*.ko" || echo "KHONG CO .KO"
+          mkdir -p $GITHUB_WORKSPACE/artifacts
           find . -name "*.ko" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
+          ls -la $GITHUB_WORKSPACE/artifacts/
 
       - name: Upload file ko
         uses: actions/upload-artifact@v4
