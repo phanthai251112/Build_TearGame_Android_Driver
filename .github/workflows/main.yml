@@ -49,9 +49,13 @@ jobs:
           echo "obj-y += teargame/" >> android-kernel/common/drivers/Makefile
           sed -i 's/obj-m/obj-y/g' android-kernel/common/drivers/teargame/Makefile
 
+      - name: Patch kgdb clang bug
+        run: |
+          sed -i 's/asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));/asm ("brk #0x401");/' \
+          android-kernel/common/arch/arm64/include/asm/kgdb.h
+
       - name: Build kernel modules
         run: |
-          # FIX 3: .config lấy từ defconfig thay vì cp file không tồn tại
           cd android-kernel/common
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 gki_defconfig
           scripts/config --disable KGDB
@@ -59,11 +63,7 @@ jobs:
           scripts/config --disable ARM64_LSE_ATOMICS
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
-          scripts/config --disable ARM64_LSE_ATOMICS
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
           mkdir -p $GITHUB_WORKSPACE/artifacts
-          # FIX 4: tìm .ko đúng path
           find . -name "*.ko" -path "*/teargame/*" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
 
       - name: Upload file .ko
