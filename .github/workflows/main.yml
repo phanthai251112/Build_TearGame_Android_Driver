@@ -61,12 +61,12 @@ jobs:
           scripts/config --disable KGDB
           scripts/config --disable KGDB_KDB
           scripts/config --disable ARM64_LSE_ATOMICS
+          scripts/config --disable MODVERSIONS
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules_prepare
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- M=$GITHUB_WORKSPACE/teargame_module -j$(nproc) modules
           mkdir -p $GITHUB_WORKSPACE/artifacts
           find $GITHUB_WORKSPACE/teargame_module -name "*.ko" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
-          ls -la $GITHUB_WORKSPACE/artifacts/
 
       - name: Upload file ko
         uses: actions/upload-artifact@v4
