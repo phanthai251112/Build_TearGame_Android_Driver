@@ -51,24 +51,21 @@ jobs:
           find temp_driver -name "*.h" >> /tmp/filelist.txt
           find temp_driver -name "Makefile" >> /tmp/filelist.txt
           cat /tmp/filelist.txt | xargs -I F cp F android-kernel/common/drivers/teargame/
-          echo "obj-y += teargame/" >> android-kernel/common/drivers/Makefile
-          sed -i 's/obj-m/obj-y/g' android-kernel/common/drivers/teargame/Makefile
+          echo "obj-m += teargame/" >> android-kernel/common/drivers/Makefile
 
       - name: Build kernel modules
         run: |
-              cd android-kernel/common
-              make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
-              scripts/config --disable KGDB
-              scripts/config --disable KGDB_KDB
-              scripts/config --disable ARM64_LSE_ATOMICS
-              make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-              make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules
-              mkdir -p $GITHUB_WORKSPACE/artifacts
-              echo "=== Tim tat ca .ko ==="
-              find . -name "*.ko" || echo "KHONG CO FILE .KO NAO"
-              echo "=== Noi dung thu muc teargame ==="
-              ls -la drivers/teargame/ || echo "THU MUC KHONG TON TAI"
-              find . -name "*.ko" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
+          cd android-kernel/common
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          scripts/config --disable KGDB
+          scripts/config --disable KGDB_KDB
+          scripts/config --disable ARM64_LSE_ATOMICS
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          echo "=== Tim .ko ==="
+          find . -name "*.ko" || echo "KHONG CO .KO"
+          find . -name "*.ko" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
 
       - name: Upload file ko
         uses: actions/upload-artifact@v4
