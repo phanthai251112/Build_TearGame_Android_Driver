@@ -11,7 +11,9 @@ jobs:
       - name: Cai dat cong cu
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 python-is-python3 lld git curl gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 python-is-python3 git curl gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu clang-11 lld-11 llvm-11
+          sudo ln -sf /usr/bin/clang-11 /usr/bin/clang
+          sudo ln -sf /usr/bin/lld-11 /usr/bin/lld
 
       - name: Cai repo tool
         run: |
@@ -33,11 +35,12 @@ jobs:
           repo sync -j$(nproc) -c --no-tags --force-sync
           rm -rf .repo
 
-      - name: Sua vermagic
+      - name: Sua vermagic va copy config may that
         run: |
           cd android-kernel/common
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
           echo -n '-qgki-gcc3ec22f5061' > localversion
+          cp $GITHUB_WORKSPACE/config .config
 
       - name: Patch kgdb bug
         run: |
@@ -57,16 +60,26 @@ jobs:
       - name: Build kernel modules
         run: |
           cd android-kernel/common
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
           scripts/config --disable KGDB
           scripts/config --disable KGDB_KDB
           scripts/config --disable ARM64_LSE_ATOMICS
           scripts/config --disable MODVERSIONS
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules_prepare
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- M=$GITHUB_WORKSPACE/teargame_module -j$(nproc) modules
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC=clang-11 LD=ld.lld-11 AR=llvm-ar-11 NM=llvm-nm-11 \
+            OBJCOPY=llvm-objcopy-11 OBJDUMP=llvm-objdump-11 \
+            STRIP=llvm-strip-11 LLVM=1 LLVM_IAS=1 olddefconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC=clang-11 LD=ld.lld-11 AR=llvm-ar-11 NM=llvm-nm-11 \
+            OBJCOPY=llvm-objcopy-11 OBJDUMP=llvm-objdump-11 \
+            STRIP=llvm-strip-11 LLVM=1 LLVM_IAS=1 -j$(nproc) modules_prepare
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CC=clang-11 LD=ld.lld-11 AR=llvm-ar-11 NM=llvm-nm-11 \
+            OBJCOPY=llvm-objcopy-11 OBJDUMP=llvm-objdump-11 \
+            STRIP=llvm-strip-11 LLVM=1 LLVM_IAS=1 \
+            M=$GITHUB_WORKSPACE/teargame_module -j$(nproc) modules
           mkdir -p $GITHUB_WORKSPACE/artifacts
           find $GITHUB_WORKSPACE/teargame_module -name "*.ko" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
+          ls -la $GITHUB_WORKSPACE/artifacts/
 
       - name: Upload file ko
         uses: actions/upload-artifact@v4
