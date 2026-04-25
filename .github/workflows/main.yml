@@ -14,7 +14,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 lld
-          # Cài đặt repo tool
           sudo curl -Lo /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
           sudo chmod a+x /usr/local/bin/repo
 
@@ -41,14 +40,14 @@ jobs:
           echo "obj-y += teargame/" >> drivers/Makefile
           sed -i 's/obj-m/obj-y/g' drivers/teargame/Makefile
 
-      - name: Build với config máy bạn
+      - name: Build với config máy bạn (ARCH=arm64)
         run: |
           cp config android-kernel/common/.config
           cd android-kernel/common
           scripts/config --disable ARM64_LSE_ATOMICS
-          make LLVM=1 LLVM_IAS=1 olddefconfig
-          make LLVM=1 LLVM_IAS=1 modules_prepare
-          make LLVM=1 LLVM_IAS=1 -j$(nproc) modules
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 modules_prepare
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
           mkdir -p $GITHUB_WORKSPACE/artifacts
           cp drivers/teargame/*.ko $GITHUB_WORKSPACE/artifacts/
 
