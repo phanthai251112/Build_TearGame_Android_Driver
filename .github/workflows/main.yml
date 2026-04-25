@@ -54,6 +54,11 @@ jobs:
           # FIX 3: .config lấy từ defconfig thay vì cp file không tồn tại
           cd android-kernel/common
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 gki_defconfig
+          scripts/config --disable KGDB
+          scripts/config --disable KGDB_KDB
+          scripts/config --disable ARM64_LSE_ATOMICS
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
           scripts/config --disable ARM64_LSE_ATOMICS
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
