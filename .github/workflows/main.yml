@@ -5,19 +5,18 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-20.04             # Ubuntu 20.04 có Clang 11
+    runs-on: ubuntu-20.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cài đặt công cụ (Clang 11, repo, ...)
+      - name: Cài đặt công cụ (Clang 11, repo)
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 \
                                   clang-11 lld-11 llvm-11
           sudo curl -Lo /usr/local/bin/repo https://storage.googleapis.com/git-repo-downloads/repo
           sudo chmod a+x /usr/local/bin/repo
-          # Tạo symlink để dùng clang-11, ld.lld-11 làm mặc định
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-11 100
           sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-11 100
 
@@ -29,38 +28,41 @@ jobs:
           repo sync -j$(nproc) -c --no-tags --force-sync
           rm -rf .repo
 
-      - name: Sửa vermagic cho đúng máy bạn (5.4.274-qgki...)
+      - name: Sửa vermagic cho máy của bạn
         run: |
           cd android-kernel/common
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
           echo -n '-qgki-gcc3ec22f5061' > localversion
 
-      - name: Tắt ARM64_LSE_ATOMICS (tránh lỗi assembly)
+      - name: Chuẩn bị driver TearGame và config máy
         run: |
-          cd android-kernel/common
-          scripts/config --disable ARM64_LSE_ATOMICS
-
-      - name: Copy driver TearGame vào kernel
-        run: |
+          # Clone driver TearGame
           cd android-kernel
           git clone https://github.com/tearhacker/TearGame_KernelDriver_Android_WriteReadMemory.git temp_driver
           mkdir -p drivers/teargame
           cp temp_driver/DEV旧版驱动/内核驱动读写LINUX源码JiangNgihtDriverByTear/* drivers/teargame/
-          echo "obj-y += teargame/" >> drivers/Makefile
-          sed -i 's/obj-m/obj-y/g' drivers/teargame/Makefile
 
-      - name: Build với config máy bạn (dùng Clang 11)
+          # Tạo Makefile cho out-of-tree build
+          cd drivers/teargame
+          echo 'obj-m := teargame.o' > Makefile
+          echo 'teargame-objs := entry.o memory.o process.o' >> Makefile
+          echo 'ccflags-y := -I$(src)/.' >> Makefile
+
+      - name: Build module với config của bạn
         run: |
           cp config android-kernel/common/.config
           cd android-kernel/common
-          # Dùng LLVM=1 với Clang 11 (phiên bản đúng với máy bạn)
+          # Tắt LSE để tránh lỗi assembly
+          scripts/config --disable ARM64_LSE_ATOMICS
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
           make LLVM=1 LLVM_IAS=1 ARCH=arm64 modules_prepare
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
+          # Build driver out-of-tree (chỉ build module, không build kernel)
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 M=drivers/teargame modules
+          # Copy file .ko ra artifact
           mkdir -p $GITHUB_WORKSPACE/artifacts
           cp drivers/teargame/*.ko $GITHUB_WORKSPACE/artifacts/
 
-      - name: Upload file .ko
+      - name: Upload driver
         uses: actions/upload-artifact@v4
         with:
           name: TearGame-driver
