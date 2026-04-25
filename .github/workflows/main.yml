@@ -49,22 +49,28 @@ jobs:
           echo "obj-y += teargame/" >> android-kernel/common/drivers/Makefile
           sed -i 's/obj-m/obj-y/g' android-kernel/common/drivers/teargame/Makefile
 
-      - name: Patch kgdb clang bug
-        run: |
-          sed -i 's/asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));/asm ("brk #0x401");/' \
-          android-kernel/common/arch/arm64/include/asm/kgdb.h
-
-      - name: Build kernel modules
-        run: |
-          cd android-kernel/common
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 gki_defconfig
-          scripts/config --disable KGDB
-          scripts/config --disable KGDB_KDB
-          scripts/config --disable ARM64_LSE_ATOMICS
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
-          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
-          mkdir -p $GITHUB_WORKSPACE/artifacts
-          find . -name "*.ko" -path "*/teargame/*" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
+              - name: Cài GCC cross-compiler
+          run: |
+            sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+        
+          - name: Patch kgdb bug
+              run: |
+                sed -i 's/asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));/asm ("brk #0x401");/' \
+                  android-kernel/common/arch/arm64/include/asm/kgdb.h
+            
+          - name: Build kernel modules
+          run: |
+            cd android-kernel/common
+            export ARCH=arm64
+            export CROSS_COMPILE=aarch64-linux-gnu-
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+            scripts/config --disable KGDB
+            scripts/config --disable KGDB_KDB
+            scripts/config --disable ARM64_LSE_ATOMICS
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules
+            mkdir -p $GITHUB_WORKSPACE/artifacts
+            find . -name "*.ko" -path "*/teargame/*" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
 
       - name: Upload file .ko
         uses: actions/upload-artifact@v4
