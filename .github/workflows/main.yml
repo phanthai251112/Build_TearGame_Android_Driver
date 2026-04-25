@@ -1,130 +1,56 @@
-name: Android Kernel Tear Builder
+name: Build TearGame Kernel Driver
 
 on:
   workflow_dispatch:
-    inputs:
-      android_version:
-        description: 'Android Version (Kernel) (e.g., 12)'
-        required: true
-      kernel_version:
-        description: 'Kernel Version (e.g., 5.4)'
-        required: true
-      driver_name:
-        description: 'Driver Module Name (e.g., rwProcMem_module.ko)'
-        required: true
-      target_arch:
-        description: 'Target Architecture (aarch64, x86_64, etc.)'
-        required: true
-        default: 'aarch64'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Free up disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/share/boost /usr/share/swift "$AGENT_TOOLSDIRECTORY"
-          sudo apt-get clean
-          docker rmi $(docker image ls -aq) 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Checkout repository
-        uses: actions/checkout@v4.2.2
-
-      - name: Prepare kerneldriver directory
+      - name: Cài đặt công cụ
         run: |
-          mkdir kerneldriver
-          mv ./code/*.h ./code/*.c ./code/Makefile kerneldriver/
+          sudo apt-get update
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 lld
 
-      - name: Install repo tool
+      - name: Tải kernel source Android 12-5.4
         run: |
-          sudo curl -L https://storage.googleapis.com/git-repo-downloads/repo -o /usr/local/bin/repo
-          sudo chmod a+x /usr/local/bin/repo
-
-      - name: Install dependencies
-        run: |
-           sudo apt-get update
-           sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python-is-python3 lld clang llvm binutils-aarch64-linux-gnu
-
-      - name: Set up Android Kernel source
-        run: |
-          mkdir -p android-kernel && cd android-kernel
+          mkdir -p android-kernel
+          cd android-kernel
           repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.4
-          repo sync -j$(nproc) -c --no-tags --optimized-fetch --force-sync
-          find . -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
+          repo sync -j$(nproc) -c --no-tags --force-sync
           rm -rf .repo
 
-      - name: Copy kerneldriver
-        run: |
-          cd android-kernel
-          cp -r ../kerneldriver common/drivers
-
-      - name: Copy device config file
-        run: |
-          if [ -f ./config ]; then
-            cp ./config android-kernel/common/.config
-            echo "✓ Device config file copied successfully"
-          else
-            echo "✗ Warning: config file not found in repository root"
-            exit 1
-          fi
-
-      - name: Override kernel version for 5.4 target
+      - name: Sửa vermagic cho đúng máy bạn (5.4.274-qgki...)
         run: |
           cd android-kernel/common
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
-          sed -i '/^EXTRAVERSION\s*=/s/=.*/= /' Makefile
+          echo -n '-qgki-gcc3ec22f5061' > localversion
 
-      - name: Setup out-of-tree driver Makefile for 5.4
+      - name: Copy driver TearGame vào kernel
         run: |
-          cd kerneldriver
-          MOD="${{ github.event.inputs.driver_name }}"
-          BASE="${MOD%.ko}"
-          echo "obj-m := ${BASE}.o" > Makefile
+          cd android-kernel
+          git clone https://github.com/tearhacker/TearGame_KernelDriver_Android_WriteReadMemory.git temp_driver
+          mkdir -p drivers/teargame
+          cp temp_driver/DEV旧版驱动/内核驱动读写LINUX源码JiangNgihtDriverByTear/* drivers/teargame/
+          echo "obj-y += teargame/" >> drivers/Makefile
+          sed -i 's/obj-m/obj-y/g' drivers/teargame/Makefile
 
-      - name: Prepare kernel configuration
-        env:
-            ARCH: arm64
-            CROSS_COMPILE: aarch64-linux-gnu-
-            CC: clang
-            AS: aarch64-linux-gnu-as
+      - name: Build với config máy bạn
         run: |
-            cd android-kernel/common
-            make LLVM=1 olddefconfig
-
-      - name: Build kernel modules preparation
-        env:
-          ARCH: arm64
-          CROSS_COMPILE: aarch64-linux-gnu-
-          CC: clang
-        run: |
+          cp config android-kernel/common/.config
           cd android-kernel/common
-          make LLVM=1 modules_prepare
+          scripts/config --disable ARM64_LSE_ATOMICS
+          make LLVM=1 LLVM_IAS=1 olddefconfig
+          make LLVM=1 LLVM_IAS=1 modules_prepare
+          make LLVM=1 LLVM_IAS=1 -j$(nproc) modules
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          cp drivers/teargame/*.ko $GITHUB_WORKSPACE/artifacts/
 
-      - name: Build driver module
-        env:
-          ARCH: arm64
-          CROSS_COMPILE: aarch64-linux-gnu-
-          CC: clang
-        run: |
-          cd android-kernel/common
-          make LLVM=1 M=$GITHUB_WORKSPACE/kerneldriver modules
-
-      - name: Verify and copy driver artifact
-        run: |
-          if [ -f "$GITHUB_WORKSPACE/kerneldriver/${{ github.event.inputs.driver_name }}" ]; then
-            mkdir -p $GITHUB_WORKSPACE/artifacts
-            cp $GITHUB_WORKSPACE/kerneldriver/${{ github.event.inputs.driver_name }} $GITHUB_WORKSPACE/artifacts/
-            echo "✓ Driver build successful: ${{ github.event.inputs.driver_name }}"
-          else
-            echo "✗ Error: Driver file not found"
-            find $GITHUB_WORKSPACE/kerneldriver -name "*.ko" -o -name "*.o"
-            exit 1
-          fi
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+      - name: Upload file .ko
+        uses: actions/upload-artifact@v4
         with:
-          name: kernel-driver-${{ github.event.inputs.target_arch }}
+          name: TearGame-driver
           path: artifacts/
