@@ -43,21 +43,18 @@ jobs:
         run: |
           sed -i 's/asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));/asm ("brk #0x401");/' android-kernel/common/arch/arm64/include/asm/kgdb.h
 
-      - name: Copy driver TearGame vao kernel
-      run: |
-        git clone https://github.com/tearhacker/TearGame_KernelDriver_Android_WriteReadMemory.git temp_driver
-        mkdir -p $GITHUB_WORKSPACE/teargame_module
-        find temp_driver -name "*.c" -exec cp {} $GITHUB_WORKSPACE/teargame_module/ \;
-        find temp_driver -name "*.h" -exec cp {} $GITHUB_WORKSPACE/teargame_module/ \;
-        echo "=== FILE TRONG MODULE ==="
-        ls -la $GITHUB_WORKSPACE/teargame_module/
-        # Tao Makefile tu dong dua tren file .c tim duoc
-        OBJ=$(find $GITHUB_WORKSPACE/teargame_module -name "*.c" -exec basename {} .c \; | awk '{printf "obj-m += %s.o\n", $1}')
-        echo "$OBJ" > $GITHUB_WORKSPACE/teargame_module/Makefile
-        echo "=== MAKEFILE ==="
-        cat $GITHUB_WORKSPACE/teargame_module/Makefile
+      - name: Clone va chuan bi driver
+        run: |
+          git clone https://github.com/tearhacker/TearGame_KernelDriver_Android_WriteReadMemory.git temp_driver
+          mkdir -p $GITHUB_WORKSPACE/teargame_module
+          find temp_driver -name "*.c" -exec cp {} $GITHUB_WORKSPACE/teargame_module/ \;
+          find temp_driver -name "*.h" -exec cp {} $GITHUB_WORKSPACE/teargame_module/ \;
+          OBJ=$(find $GITHUB_WORKSPACE/teargame_module -name "*.c" -exec basename {} .c \; | awk '{printf "obj-m += %s.o\n", $1}')
+          echo "$OBJ" > $GITHUB_WORKSPACE/teargame_module/Makefile
+          echo "=== MAKEFILE ==="
+          cat $GITHUB_WORKSPACE/teargame_module/Makefile
 
-        - name: Build kernel modules
+      - name: Build kernel modules
         run: |
           cd android-kernel/common
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
@@ -66,17 +63,12 @@ jobs:
           scripts/config --disable ARM64_LSE_ATOMICS
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules_prepare
-          # Build external module
-          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            M=$GITHUB_WORKSPACE/teargame_module \
-            -j$(nproc) modules
-          echo "=== TIM .KO ==="
-          find $GITHUB_WORKSPACE/teargame_module -name "*.ko" || echo "KHONG CO .KO"
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- M=$GITHUB_WORKSPACE/teargame_module -j$(nproc) modules
           mkdir -p $GITHUB_WORKSPACE/artifacts
           find $GITHUB_WORKSPACE/teargame_module -name "*.ko" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
           ls -la $GITHUB_WORKSPACE/artifacts/
 
-        - name: Upload file ko
+      - name: Upload file ko
         uses: actions/upload-artifact@v4
         with:
           name: TearGame-driver
