@@ -1,8 +1,6 @@
 name: Build TearGame Kernel Driver
-
 on:
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,17 +11,30 @@ jobs:
       - name: Cài đặt công cụ
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 lld
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 lld git curl python-is-python3
+
+      # FIX 1: Cài repo tool
+      - name: Cài repo tool
+        run: |
+          mkdir -p $HOME/bin
+          curl https://storage.googleapis.com/git-repo-downloads/repo > $HOME/bin/repo
+          chmod a+x $HOME/bin/repo
+          echo "$HOME/bin" >> $GITHUB_PATH
+
+      - name: Cấu hình git
+        run: |
+          git config --global user.email "ci@build.local"
+          git config --global user.name "CI Build"
 
       - name: Tải kernel source Android 12-5.4
         run: |
           mkdir -p android-kernel
           cd android-kernel
-          repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.4
+          repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android12-5.4
           repo sync -j$(nproc) -c --no-tags --force-sync
           rm -rf .repo
 
-      - name: Sửa vermagic cho đúng máy bạn (5.4.274-qgki...)
+      - name: Sửa vermagic
         run: |
           cd android-kernel/common
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
@@ -31,23 +42,24 @@ jobs:
 
       - name: Copy driver TearGame vào kernel
         run: |
-          cd android-kernel
           git clone https://github.com/tearhacker/TearGame_KernelDriver_Android_WriteReadMemory.git temp_driver
-          mkdir -p drivers/teargame
-          cp temp_driver/DEV旧版驱动/内核驱动读写LINUX源码JiangNgihtDriverByTear/* drivers/teargame/
-          echo "obj-y += teargame/" >> drivers/Makefile
-          sed -i 's/obj-m/obj-y/g' drivers/teargame/Makefile
+          mkdir -p android-kernel/common/drivers/teargame
+          # FIX 2: tránh path tiếng Trung, dùng wildcard tìm file .c/.h
+          find temp_driver -name "*.c" -o -name "*.h" -o -name "Makefile" | xargs -I{} cp {} android-kernel/common/drivers/teargame/
+          echo "obj-y += teargame/" >> android-kernel/common/drivers/Makefile
+          sed -i 's/obj-m/obj-y/g' android-kernel/common/drivers/teargame/Makefile
 
-      - name: Build với config máy bạn
+      - name: Build kernel modules
         run: |
-          cp config android-kernel/common/.config
+          # FIX 3: .config lấy từ defconfig thay vì cp file không tồn tại
           cd android-kernel/common
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 gki_defconfig
           scripts/config --disable ARM64_LSE_ATOMICS
-          make LLVM=1 LLVM_IAS=1 olddefconfig
-          make LLVM=1 LLVM_IAS=1 modules_prepare
-          make LLVM=1 LLVM_IAS=1 -j$(nproc) modules
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 olddefconfig
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 -j$(nproc) modules
           mkdir -p $GITHUB_WORKSPACE/artifacts
-          cp drivers/teargame/*.ko $GITHUB_WORKSPACE/artifacts/
+          # FIX 4: tìm .ko đúng path
+          find . -name "*.ko" -path "*/teargame/*" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
 
       - name: Upload file .ko
         uses: actions/upload-artifact@v4
