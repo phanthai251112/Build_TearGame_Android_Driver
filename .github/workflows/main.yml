@@ -8,25 +8,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Cài đặt công cụ
+      - name: Cai dat cong cu
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 lld git curl python-is-python3
+          sudo apt-get install -y build-essential flex bison libssl-dev libelf-dev bc python3 python-is-python3 lld git curl gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
-      # FIX 1: Cài repo tool
-      - name: Cài repo tool
+      - name: Cai repo tool
         run: |
           mkdir -p $HOME/bin
           curl https://storage.googleapis.com/git-repo-downloads/repo > $HOME/bin/repo
           chmod a+x $HOME/bin/repo
           echo "$HOME/bin" >> $GITHUB_PATH
 
-      - name: Cấu hình git
+      - name: Cau hinh git
         run: |
           git config --global user.email "ci@build.local"
           git config --global user.name "CI Build"
 
-      - name: Tải kernel source Android 12-5.4
+      - name: Tai kernel source Android 12-5.4
         run: |
           mkdir -p android-kernel
           cd android-kernel
@@ -34,45 +33,40 @@ jobs:
           repo sync -j$(nproc) -c --no-tags --force-sync
           rm -rf .repo
 
-      - name: Sửa vermagic
+      - name: Sua vermagic
         run: |
           cd android-kernel/common
           sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 274/' Makefile
           echo -n '-qgki-gcc3ec22f5061' > localversion
 
-      - name: Copy driver TearGame vào kernel
+      - name: Patch kgdb bug
+        run: |
+          sed -i 's/asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));/asm ("brk #0x401");/' android-kernel/common/arch/arm64/include/asm/kgdb.h
+
+      - name: Copy driver TearGame vao kernel
         run: |
           git clone https://github.com/tearhacker/TearGame_KernelDriver_Android_WriteReadMemory.git temp_driver
           mkdir -p android-kernel/common/drivers/teargame
-          # FIX 2: tránh path tiếng Trung, dùng wildcard tìm file .c/.h
-          find temp_driver -name "*.c" -o -name "*.h" -o -name "Makefile" | xargs -I{} cp {} android-kernel/common/drivers/teargame/
+          find temp_driver -name "*.c" > /tmp/filelist.txt
+          find temp_driver -name "*.h" >> /tmp/filelist.txt
+          find temp_driver -name "Makefile" >> /tmp/filelist.txt
+          cat /tmp/filelist.txt | xargs -I F cp F android-kernel/common/drivers/teargame/
           echo "obj-y += teargame/" >> android-kernel/common/drivers/Makefile
           sed -i 's/obj-m/obj-y/g' android-kernel/common/drivers/teargame/Makefile
 
-              - name: Cài GCC cross-compiler
-          run: |
-            sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-        
-          - name: Patch kgdb bug
-              run: |
-                sed -i 's/asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));/asm ("brk #0x401");/' \
-                  android-kernel/common/arch/arm64/include/asm/kgdb.h
-            
-          - name: Build kernel modules
-          run: |
-            cd android-kernel/common
-            export ARCH=arm64
-            export CROSS_COMPILE=aarch64-linux-gnu-
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
-            scripts/config --disable KGDB
-            scripts/config --disable KGDB_KDB
-            scripts/config --disable ARM64_LSE_ATOMICS
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
-            make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules
-            mkdir -p $GITHUB_WORKSPACE/artifacts
-            find . -name "*.ko" -path "*/teargame/*" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
+      - name: Build kernel modules
+        run: |
+          cd android-kernel/common
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+          scripts/config --disable KGDB
+          scripts/config --disable KGDB_KDB
+          scripts/config --disable ARM64_LSE_ATOMICS
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) modules
+          mkdir -p $GITHUB_WORKSPACE/artifacts
+          find . -name "*.ko" -path "*/teargame/*" -exec cp {} $GITHUB_WORKSPACE/artifacts/ \;
 
-      - name: Upload file .ko
+      - name: Upload file ko
         uses: actions/upload-artifact@v4
         with:
           name: TearGame-driver
